@@ -161,3 +161,63 @@ func TestSchedulerSessionIDPrefersHostIdentity(t *testing.T) {
 		t.Fatalf("expected session header fallback, got %q", got)
 	}
 }
+
+func TestAuthScopeDefersMixedRoutes(t *testing.T) {
+	cfg := balancer.DefaultConfig()
+	cfg.Providers = []string{"codex"}
+	cfg.AuthIDs = []string{"oauth-a", "oauth-b"}
+	cfg.CodexSessionQuotaBalance = true
+	currentConfig.Store(cfg)
+	defer currentConfig.Store(balancer.DefaultConfig())
+
+	for _, tc := range []struct {
+		name       string
+		candidates []string
+		handled    bool
+	}{
+		{"OAuth route", []string{"oauth-a", "oauth-b"}, true},
+		{"API key route", []string{"paid-api-key"}, false},
+		{"mixed route", []string{"oauth-a", "paid-api-key"}, false},
+		{"other OAuth account", []string{"oauth-c"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := pluginapi.SchedulerPickRequest{
+				Options: pluginapi.SchedulerOptions{Metadata: map[string]any{"canonical_session_id": "test"}},
+			}
+			for _, id := range tc.candidates {
+				req.Candidates = append(req.Candidates, pluginapi.SchedulerAuthCandidate{ID: id, Provider: "codex"})
+			}
+			raw, err := json.Marshal(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err = pickAuth(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var env envelope
+			if err := json.Unmarshal(raw, &env); err != nil {
+				t.Fatal(err)
+			}
+			var response pluginapi.SchedulerPickResponse
+			if err := json.Unmarshal(env.Result, &response); err != nil {
+				t.Fatal(err)
+			}
+			if response.Handled != tc.handled {
+				t.Fatalf("handled = %t, want %t", response.Handled, tc.handled)
+			}
+		})
+	}
+
+	raw, err := handleQuotaFetch([]byte(`{"auth_id":"paid-api-key","provider":"codex"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env envelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		t.Fatal(err)
+	}
+	if env.OK || env.Error == nil || env.Error.Code != "auth_out_of_scope" {
+		t.Fatalf("expected scoped quota error, got %s", raw)
+	}
+}

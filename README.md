@@ -127,6 +127,11 @@ their binding expires after `sticky_ttl_seconds` of inactivity. If no new
 conversation arrives, calibration waits for one. The plugin sends no
 standalone model requests. Other providers continue to use the existing policy.
 
+To restrict the plugin to specific credentials, set `auth_ids` to their exact
+CPA credential IDs, for example `auth_ids: ["codex-account-a.json",
+"codex-account-b.json"]`. The scheduler defers to CPA if any candidate falls
+outside this list. The list also limits usage tracking and manual quota reads.
+
 ## Details
 
 - **Client identity** is a SHA-256 hash of the inbound `Authorization` (or `X-Api-Key`) header. Raw key material is never stored or logged.

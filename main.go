@@ -69,7 +69,7 @@ import (
 
 const (
 	pluginID      = "smart-load-balancer"
-	pluginVersion = "0.1.8-session.1"
+	pluginVersion = "0.1.8-session.2"
 	pluginAuthor  = "nitansde"
 	pluginRepo    = "https://github.com/nitansde/smart-load-balancer"
 	// quotaProviderIdentifier is the provider key this plugin serves
@@ -418,6 +418,11 @@ func pickAuth(raw []byte) ([]byte, error) {
 
 	candidates := make([]balancer.Candidate, 0, len(req.Candidates))
 	for _, c := range req.Candidates {
+		// Leave mixed routes entirely to the host so credentials outside
+		// the allowlist retain their normal selection priority.
+		if !cfg.AllowsAuth(c.ID) {
+			return okEnvelope(pluginapi.SchedulerPickResponse{Handled: false})
+		}
 		candidates = append(candidates, balancer.Candidate{
 			ID:       c.ID,
 			Provider: c.Provider,
@@ -468,7 +473,8 @@ func handleUsage(raw []byte) ([]byte, error) {
 	if errUnmarshal := json.Unmarshal(raw, &rec); errUnmarshal != nil {
 		return nil, errUnmarshal
 	}
-	if !loadedConfig().Enabled {
+	cfg := loadedConfig()
+	if !cfg.Enabled || !cfg.AllowsAuth(rec.AuthID) {
 		return okEnvelope(map[string]bool{"handled": false})
 	}
 	observedAt := rec.RequestedAt
@@ -534,8 +540,12 @@ func handleQuotaFetch(raw []byte) ([]byte, error) {
 	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
 		return nil, errUnmarshal
 	}
-	if !loadedConfig().Enabled {
+	cfg := loadedConfig()
+	if !cfg.Enabled {
 		return errorEnvelope("disabled", "smart load balancer is disabled"), nil
+	}
+	if req.AuthID != "" && !cfg.AllowsAuth(req.AuthID) {
+		return errorEnvelope("auth_out_of_scope", "credential is outside the configured auth_ids"), nil
 	}
 	if !quota.HasEndpoint(req.Provider) {
 		return errorEnvelope("unsupported_provider", "no quota endpoint for provider "+req.Provider), nil
@@ -561,6 +571,9 @@ func handleQuotaFetch(raw []byte) ([]byte, error) {
 	} else {
 		entry.ID = req.AuthID
 		entry.AuthIndex = ""
+	}
+	if !cfg.AllowsAuth(entry.ID) {
+		return errorEnvelope("auth_out_of_scope", "credential is outside the configured auth_ids"), nil
 	}
 	snap, err := quota.FetchSnapshot(client, entry)
 	if err != nil {

@@ -9,6 +9,7 @@ package balancer
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -40,6 +41,9 @@ type Config struct {
 	// Providers optionally restricts balancing to these provider keys
 	// (for example ["codex"]). Empty means every provider offered by the host.
 	Providers []string `yaml:"providers"`
+	// AuthIDs limits the plugin to exact host credential IDs. A missing
+	// list keeps the original provider-based behavior.
+	AuthIDs []string `yaml:"auth_ids"`
 	// CodexSessionQuotaBalance binds each Codex conversation to a profile
 	// and balances weekly quota across eligible profiles for new conversations.
 	CodexSessionQuotaBalance bool `yaml:"codex_session_quota_balance"`
@@ -127,6 +131,11 @@ func DefaultConfig() Config {
 		WindowSeconds:         int(DefaultWindow / time.Second),
 		MaxInflightPerProfile: DefaultMaxInflightPerProfile,
 	}.WithDefaults()
+}
+
+// AllowsAuth reports whether the credential is in the configured scope.
+func (c Config) AllowsAuth(authID string) bool {
+	return c.AuthIDs == nil || slices.Contains(c.AuthIDs, authID)
 }
 
 // Validate reports whether the strategy name is supported.

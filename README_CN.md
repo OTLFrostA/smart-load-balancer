@@ -115,6 +115,8 @@ plugins:
 在 `plugins.configs.smart-load-balancer` 中设置 `codex_session_quota_balance: true`，适用于 CLIProxyAPI v8。同一个对话沿用已绑定账号，新对话按「周配额剩余百分比 ÷ 距重置的小时数」排序，分母最低为一小时。与最高分相差不超过 10% 时轮询，所有账号都缺少有效配额数据时也轮询。账号需要启动周配额倒计时时，可以优先分配一个合适的新对话，该对话后续继续使用这个账号。没有新对话时，倒计时触发会等待。账号不可用或绑定空闲超过 `sticky_ttl_seconds` 后可以重新选择。其他 provider 沿用原有策略。
 
 
+可以用 `auth_ids` 限定插件管理的 CPA 凭据 ID，例如 `auth_ids: ["codex-account-a.json", "codex-account-b.json"]`。如果候选中有名单外的凭据，本次调度交给 CPA。名单同样适用于插件的用量记录和手动配额查询。
+
 ## 细节
 
 - **客户端身份**是入站 `Authorization`（或 `X-Api-Key`）头的 SHA-256 哈希，原始 Key 不会存储也不会打日志。
