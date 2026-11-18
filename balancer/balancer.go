@@ -38,6 +38,8 @@ type QuotaInfo struct {
 	// the account is on; both are treated identically. Reset-soonest
 	// profiles are preferred: quota that renews soon should be spent first.
 	LongResetAt time.Time
+	// LongWindowStale indicates a reset has passed and usage needs refreshing.
+	LongWindowStale bool
 	// Fresh means never observed and no snapshot.
 	Fresh bool
 	// FiveHourLimitKnown reports whether the upstream explicitly described
@@ -85,11 +87,12 @@ const (
 // Balancer spreads picks across candidates. It is safe for concurrent use;
 // the host may invoke scheduler.pick from many goroutines at once.
 type Balancer struct {
-	mu      sync.Mutex
-	now     func() time.Time
-	picks   []pickRecord
-	sticky  map[string]stickyEntry
-	history map[string]historyEntry
+	mu            sync.Mutex
+	now           func() time.Time
+	picks         []pickRecord
+	sticky        map[string]stickyEntry
+	history       map[string]historyEntry
+	lastCodexAuth string
 	// divert, when non-nil, lets the pick path borrow one real request at
 	// a time to calibrate a stale or cold account. See divert.go.
 	divert *DivertState
@@ -453,6 +456,7 @@ func (b *Balancer) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.picks = nil
+	b.lastCodexAuth = ""
 	b.sticky = make(map[string]stickyEntry)
 	b.history = make(map[string]historyEntry)
 }

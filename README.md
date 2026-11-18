@@ -96,12 +96,13 @@ plugins:
 
 ## Configuration
 
-The management UI shows three options; everything else keeps sane built-in defaults:
+The management UI shows four options; everything else keeps sane built-in defaults:
 
 | Field | Default | What it does |
 |---|---|---|
 | `enabled` | `true` | Master switch. Off = the plugin steps aside and the host's default scheduler takes over. |
 | `sticky_ttl_seconds` | `86400` (24h) | How long an idle key stays pinned to its profile. |
+| `codex_session_quota_balance` | `false` | Pin Codex requests by conversation and balance weekly quota for new conversations. |
 | `five_hour_boost` | `false` | 5h boost mode. When on, a 5h window at 100% with no countdown running borrows one small real request to kick off its countdown — same cherry-pick as the weekly mode, the plugin never sends requests of its own. |
 
 <details>
@@ -110,6 +111,21 @@ The management UI shows three options; everything else keeps sane built-in defau
 `providers`, `strategy` (accepted but ignored), `sticky`, `window_seconds` (120), `max_inflight_per_profile` (8), `quota_priorities`.
 
 </details>
+
+### Codex conversation routing
+
+Set `codex_session_quota_balance: true` under
+`plugins.configs.smart-load-balancer` to route Codex by conversation with
+CLIProxyAPI v8. For new conversations, eligible profiles are ranked by
+remaining weekly quota percentage divided by hours until reset, with a
+one-hour minimum divisor. Scores within 10% of the highest score, or profiles
+with no usable quota data when none has a score, are selected in rotation.
+When a profile needs its weekly quota window started, a suitable new
+conversation can start there and stays on that profile while it is available.
+Existing conversations retain their profile until it becomes unavailable or
+their binding expires after `sticky_ttl_seconds` of inactivity. If no new
+conversation arrives, calibration waits for one. The plugin sends no
+standalone model requests. Other providers continue to use the existing policy.
 
 ## Details
 

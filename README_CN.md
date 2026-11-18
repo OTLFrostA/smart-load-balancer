@@ -94,12 +94,13 @@ plugins:
 
 ## 配置
 
-管理界面露出三个选项，其他都用内置默认值：
+管理界面提供四个选项，其他都用内置默认值：
 
 | 字段 | 默认值 | 说明 |
 |---|---|---|
 | `enabled` | `true` | 总开关。关闭 = 插件让位，主机用默认调度器。 |
 | `sticky_ttl_seconds` | `86400`（24h） | 空闲的 Key 在它的 profile 上固定多久。 |
+| `codex_session_quota_balance` | `false` | 按对话绑定 Codex 账号，新对话按周配额排序。 |
 | `five_hour_boost` | `false` | 5h 加速模式。打开后，5h 额度 100% 且倒计时没在跑时，会借一条真实小请求消耗一点 token 来启动倒计时——和周额度一样的 cherry-pick 机制，插件本身不主动发任何请求。 |
 
 <details>
@@ -108,6 +109,11 @@ plugins:
 `providers`、`strategy`（接受但忽略）、`sticky`、`window_seconds`（120）、`max_inflight_per_profile`（8）、`quota_priorities`。
 
 </details>
+
+### 按 Codex 对话分配账号
+
+在 `plugins.configs.smart-load-balancer` 中设置 `codex_session_quota_balance: true`，适用于 CLIProxyAPI v8。同一个对话沿用已绑定账号，新对话按「周配额剩余百分比 ÷ 距重置的小时数」排序，分母最低为一小时。与最高分相差不超过 10% 时轮询，所有账号都缺少有效配额数据时也轮询。账号需要启动周配额倒计时时，可以优先分配一个合适的新对话，该对话后续继续使用这个账号。没有新对话时，倒计时触发会等待。账号不可用或绑定空闲超过 `sticky_ttl_seconds` 后可以重新选择。其他 provider 沿用原有策略。
+
 
 ## 细节
 

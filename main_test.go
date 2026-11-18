@@ -77,19 +77,16 @@ func TestDisabledPluginDeclinesPick(t *testing.T) {
 	}
 }
 
-// The management UI exposes the master switch, the sticky TTL, and the
-// 5h boost mode toggle — nothing else.
 func TestConfigFieldsAreMinimal(t *testing.T) {
 	fields := pluginRegistration().Metadata.ConfigFields
-	if len(fields) != 3 {
-		names := make([]string, 0, len(fields))
-		for _, f := range fields {
-			names = append(names, f.Name)
-		}
-		t.Fatalf("expected 3 config fields, got %d: %v", len(fields), names)
+	want := []string{"enabled", "sticky_ttl_seconds", "codex_session_quota_balance", "five_hour_boost"}
+	if len(fields) != len(want) {
+		t.Fatalf("expected %d config fields, got %d", len(want), len(fields))
 	}
-	if fields[0].Name != "enabled" || fields[1].Name != "sticky_ttl_seconds" || fields[2].Name != "five_hour_boost" {
-		t.Fatalf("unexpected config fields: %q, %q, %q", fields[0].Name, fields[1].Name, fields[2].Name)
+	for i, name := range want {
+		if fields[i].Name != name {
+			t.Fatalf("config field %d: got %q, want %q", i, fields[i].Name, name)
+		}
 	}
 }
 
@@ -148,5 +145,19 @@ func TestFiveHourBoost_DivertsToIdleProfile(t *testing.T) {
 	got, handled := loadBalancer.PickWithQuota("testkey", cands, cfg, r)
 	if !handled || got != "idle" {
 		t.Fatalf("pick should divert to idle profile, got %q handled=%v", got, handled)
+	}
+}
+
+func TestSchedulerSessionIDPrefersHostIdentity(t *testing.T) {
+	opts := pluginapi.SchedulerOptions{
+		Headers:  map[string][]string{"session_id": {"session"}, "thread-id": {"thread"}},
+		Metadata: map[string]any{"canonical_session_id": "codex:thread"},
+	}
+	if got := schedulerSessionID(opts); got != "codex:thread" {
+		t.Fatalf("expected host identity, got %q", got)
+	}
+	opts.Metadata = nil
+	if got := schedulerSessionID(opts); got != "session" {
+		t.Fatalf("expected session header fallback, got %q", got)
 	}
 }

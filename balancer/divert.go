@@ -287,6 +287,10 @@ func (b *Balancer) divertTarget(keyHash string, eligible []Candidate, now time.T
 	b.mu.Lock()
 	d := b.divert
 	b.mu.Unlock()
+	return calibrationTarget(d, keyHash, eligible, now)
+}
+
+func calibrationTarget(d *DivertState, keyHash string, eligible []Candidate, now time.Time) (string, bool) {
 	if d == nil || d.Stats == nil || d.Pending == nil {
 		return "", false
 	}

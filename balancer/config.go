@@ -40,6 +40,9 @@ type Config struct {
 	// Providers optionally restricts balancing to these provider keys
 	// (for example ["codex"]). Empty means every provider offered by the host.
 	Providers []string `yaml:"providers"`
+	// CodexSessionQuotaBalance binds each Codex conversation to a profile
+	// and balances weekly quota across eligible profiles for new conversations.
+	CodexSessionQuotaBalance bool `yaml:"codex_session_quota_balance"`
 	// Strategy is accepted for compatibility ("least-connections",
 	// "round-robin") but ignored: the plugin always takes the
 	// top-ranked candidate from its quota-aware ordering.

@@ -53,6 +53,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
+	"strings"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -67,7 +69,7 @@ import (
 
 const (
 	pluginID      = "smart-load-balancer"
-	pluginVersion = "0.1.8"
+	pluginVersion = "0.1.8-session.1"
 	pluginAuthor  = "nitansde"
 	pluginRepo    = "https://github.com/nitansde/smart-load-balancer"
 	// quotaProviderIdentifier is the provider key this plugin serves
@@ -384,6 +386,11 @@ func pluginRegistration() registration {
 					Description: "空闲的粘性绑定保留时长（秒），默认 24h（86400）。过期后该客户端上次用过的 profile 仍会被优先考虑（弱偏好）。How long an idle sticky assignment is kept, in seconds. Defaults to 24h (86400). After expiry, the last-used profile of the client is still preferred as a soft hint.",
 				},
 				{
+					Name:        "codex_session_quota_balance",
+					Type:        pluginapi.ConfigFieldTypeBoolean,
+					Description: "Codex 同一对话固定到同一账号，新对话按周额度排序。周额度待启动时优先使用合适的新对话。Pin each Codex conversation to one account and rank new conversations by remaining weekly quota and reset time. An eligible new conversation can start a pending weekly quota window.",
+				},
+				{
 					Name:        "five_hour_boost",
 					Type:        pluginapi.ConfigFieldTypeBoolean,
 					Description: "5h 加速模式，默认关闭。打开后 5h 窗口按周额度的模式处理：看到 5h 额度 100%（倒计时没在跑）就借一条真实小请求消耗一点 token 来启动倒计时，插件本身不主动发任何请求。5h boost mode, default off. When on, the 5h window is treated like the weekly one: a 5h window at 100% with no countdown running borrows one small real request to kick off its countdown. The plugin never sends requests of its own.",
@@ -419,11 +426,37 @@ func pickAuth(raw []byte) ([]byte, error) {
 		})
 	}
 	keyHash := balancer.ClientKeyHash(http.Header(req.Options.Headers))
-	authID, handled := loadBalancer.PickWithQuota(keyHash, candidates, cfg, &quotaResolver{now: time.Now})
+	resolver := &quotaResolver{now: time.Now}
+	if cfg.CodexSessionQuotaBalance && len(candidates) > 0 &&
+		(len(cfg.Providers) == 0 || slices.Contains(cfg.Providers, "codex")) &&
+		!slices.ContainsFunc(candidates, func(c balancer.Candidate) bool { return c.Provider != "codex" }) {
+		sessionID := schedulerSessionID(req.Options)
+		parentID, _ := req.Options.Metadata["parent_session_id"].(string)
+		authID, handled := loadBalancer.PickCodexSession(keyHash, sessionID, parentID, candidates, cfg, resolver)
+		return okEnvelope(pluginapi.SchedulerPickResponse{AuthID: authID, Handled: handled})
+	}
+	authID, handled := loadBalancer.PickWithQuota(keyHash, candidates, cfg, resolver)
 	return okEnvelope(pluginapi.SchedulerPickResponse{
 		AuthID:  authID,
 		Handled: handled,
 	})
+}
+
+// schedulerSessionID uses the host's normalized identity when available.
+func schedulerSessionID(opts pluginapi.SchedulerOptions) string {
+	for _, key := range []string{"canonical_session_id", "execution_session_id", "derived_session_id"} {
+		if id, ok := opts.Metadata[key].(string); ok && strings.TrimSpace(id) != "" {
+			return strings.TrimSpace(id)
+		}
+	}
+	for _, key := range []string{"Session-Id", "Session_id", "Thread-Id", "Thread_id", "X-Session-Id"} {
+		for name, values := range opts.Headers {
+			if strings.EqualFold(name, key) && len(values) > 0 && strings.TrimSpace(values[0]) != "" {
+				return strings.TrimSpace(values[0])
+			}
+		}
+	}
+	return ""
 }
 
 // handleUsage receives one usage record per completed request and feeds
@@ -606,6 +639,7 @@ func (r *quotaResolver) Lookup(authID, provider string) balancer.QuotaInfo {
 		// one shot to refresh it; the five-hour window is tracked
 		// locally from usage feedback, not re-fetched.
 		if longWindowResetPassed(snap, now) {
+			info.LongWindowStale = true
 			divertState.Pending.Mark(authID)
 		}
 		// 5h boost mode (default off): treat the 5h window like the
